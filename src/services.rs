@@ -1,11 +1,12 @@
 use crate::errors::AppError;
-use crate::models::{CreateUserDto, UpdateUserDto, User};
 use crate::models::LoginDto;
+use crate::models::{CreateUserDto, UpdateUserDto, User};
+use bcrypt::{DEFAULT_COST, hash, verify};
+use jsonwebtoken::{EncodingKey, Header, encode};
+use serde::{Deserialize, Serialize};
 use sqlx::MySqlPool;
-use bcrypt::{hash, verify, DEFAULT_COST};
-use jsonwebtoken::{encode, Header, EncodingKey};
+use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 
 pub struct UserService;
@@ -16,6 +17,13 @@ struct Claims {
     sub: String, // email user
     exp: usize,  // waktu kadaluarsa
 }
+fn u8_to_uuid_string(bytes: &[u8]) -> Result<String, uuid::Error> {
+    // Uuid::from_slice returns a Result<Uuid, Error> if the slice length is not 16
+    let uuid = Uuid::from_slice(bytes)?;
+
+    // Convert the Uuid to a standard hyphenated string
+    Ok(uuid.to_string())
+}
 
 impl UserService {
     pub async fn fetch_all(pool: &MySqlPool) -> Result<Vec<User>, AppError> {
@@ -23,10 +31,29 @@ impl UserService {
             .fetch_all(pool)
             .await?; // Operator '?' otomatis mengubah sqlx::Error jadi AppError::DbError
         // Ok(users)
+        // let mut list = Vec::<User>::new();
+        for user in &users {
+            let uu = u8_to_uuid_string(&user.id);
+                    println!("The UUID string is: {:?}", uu);
+            // match u8_to_uuid_string(&user.id) {
+            //     Ok(uuid_string) => {
+            //         println!("The UUID string is: {}", uuid_string);
+            //         // Expected output: a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8
+            //     }
+            //     Err(err) => {
+            //         eprintln!("Error converting bytes to UUID: {}", err);
+            //     }
+            // }
+            // let dorong = Vec<User>::new(user.email, user.name);
+        }
         Ok(users)
     }
 
-    pub async fn update(pool: &MySqlPool, id: String, data: UpdateUserDto) -> Result<bool, AppError> {
+    pub async fn update(
+        pool: &MySqlPool,
+        id: String,
+        data: UpdateUserDto,
+    ) -> Result<bool, AppError> {
         let result = sqlx::query("UPDATE users SET name = ?, email = ? WHERE id = ?")
             .bind(&data.name)
             .bind(&data.email)
@@ -64,9 +91,10 @@ impl UserService {
     }
     pub async fn register(pool: &MySqlPool, data: CreateUserDto) -> Result<(), AppError> {
         let uuid_v4 = Uuid::new_v4();
-    println!("{}", uuid_v4);
+        println!("{}", uuid_v4);
         // 1. Hash password sebelum simpan
-        let hashed_password = hash(data.password, DEFAULT_COST).map_err(|_| AppError::InternalError)?;
+        let hashed_password =
+            hash(data.password, DEFAULT_COST).map_err(|_| AppError::InternalError)?;
 
         sqlx::query("INSERT INTO users (id, name, email, password) VALUES (?, ?, ?, ?)")
             .bind(uuid_v4.to_string())
@@ -87,21 +115,37 @@ impl UserService {
             .ok_or(AppError::NotFound)?; // User tidak ketemu
 
         // 2. Verifikasi password
-        let is_valid = verify(data.password, &user.password).map_err(|_| AppError::InternalError)?;
+        let is_valid =
+            verify(data.password, &user.password).map_err(|_| AppError::InternalError)?;
         if !is_valid {
             return Err(AppError::Unauthorized); // Password salah
         }
 
         // 3. Generate JWT
+        const EXP_TOKEN: u64 = 5000;
+        let exp: u64 = env::var("EXP_TOKEN_IN_MINUTE")
+            // Check if the env var was successfully retrieved (Result)
+            .ok()
+            // Attempt to parse the string into a u16 if it exists (Option)
+            .and_then(|port_str| port_str.parse::<u64>().ok())
+            // Use the default value if either step failed
+            .unwrap_or(EXP_TOKEN);
         let expiration = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_secs() + 3600; // Berlaku 1 jam
+            .as_secs()
+            + exp; // Berlaku 1 jam
 
-        let klem = Claims { sub: user.email, exp: expiration as usize };
-        let token = encode(&Header::default(), &klem, &EncodingKey::from_secret("secret_banget".as_ref()))
-            .map_err(|_| AppError::InternalError)?;
-
+        let klem = Claims {
+            sub: user.email,
+            exp: expiration as usize,
+        };
+        let token = encode(
+            &Header::default(),
+            &klem,
+            &EncodingKey::from_secret("secret_banget".as_ref()),
+        )
+        .map_err(|_| AppError::InternalError)?;
         Ok(token)
     }
 }
@@ -112,7 +156,7 @@ mod tests {
     use super::*;
     use dotenvy::dotenv;
     use sqlx::mysql::MySqlPoolOptions;
-    use std::{env};
+    use std::env;
 
     // Fungsi pembantu untuk koneksi database khusus testing
     async fn setup_test_db() -> MySqlPool {
@@ -133,7 +177,7 @@ mod tests {
         let dto = CreateUserDto {
             name: "Test User".to_string(),
             email: format!("test_{}@example.com", chrono::Utc::now().timestamp_millis()),
-            password: "sdf sdlkfjsdlkfjsdf".to_string()
+            password: "sdf sdlkfjsdlkfjsdf".to_string(),
         };
 
         // Jalankan fungsi create

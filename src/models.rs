@@ -36,7 +36,7 @@ pub struct LoginDto {
     pub password: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AuthResponse {
     pub token: String,
 }
