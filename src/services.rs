@@ -17,35 +17,12 @@ struct Claims {
     sub: String, // email user
     exp: usize,  // waktu kadaluarsa
 }
-fn u8_to_uuid_string(bytes: &[u8]) -> Result<String, uuid::Error> {
-    // Uuid::from_slice returns a Result<Uuid, Error> if the slice length is not 16
-    let uuid = Uuid::from_slice(bytes)?;
-
-    // Convert the Uuid to a standard hyphenated string
-    Ok(uuid.to_string())
-}
-
 impl UserService {
     pub async fn fetch_all(pool: &MySqlPool) -> Result<Vec<User>, AppError> {
         let users = sqlx::query_as::<_, User>("SELECT id, name, email, password FROM users")
             .fetch_all(pool)
             .await?; // Operator '?' otomatis mengubah sqlx::Error jadi AppError::DbError
         // Ok(users)
-        // let mut list = Vec::<User>::new();
-        for user in &users {
-            let uu = u8_to_uuid_string(&user.id);
-                    println!("The UUID string is: {:?}", uu);
-            // match u8_to_uuid_string(&user.id) {
-            //     Ok(uuid_string) => {
-            //         println!("The UUID string is: {}", uuid_string);
-            //         // Expected output: a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8
-            //     }
-            //     Err(err) => {
-            //         eprintln!("Error converting bytes to UUID: {}", err);
-            //     }
-            // }
-            // let dorong = Vec<User>::new(user.email, user.name);
-        }
         Ok(users)
     }
 
